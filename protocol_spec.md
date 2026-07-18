@@ -1,34 +1,57 @@
-# Serial Protocol — PCG Measurement and ANC Calibration
+# Serial Protocol — BPM-only Measurement and ANC Calibration
 
-UART runs at **921600 baud, 8-N-1**. The UART is binary-only while streaming;
-firmware must not print logs to it.
+UART runs at **921600 baud, 8-N-1**.
 
-## Measurement stream
+## Normal measurement mode
 
-Normal operation emits one 69-byte frame per 32 clean PCG samples:
+Normal operation is text-only. Firmware does not transmit PCM frames. After
+each detected heart-sound peak it emits one newline-terminated ASCII line:
 
-`AA 55 | sequence:u8 | count:u8=32 | clean_pcm:int16[32] LE | xor:u8`
+```text
+Peak detected | interval=XXXms | amplitude=YYY | BPM=XX
+```
 
-The XOR is calculated across every byte before the final checksum. The browser
-must seek `AA 55`, require `count=32`, validate XOR, and use sequence gaps as a
-data-quality metric.
+`interval=0` identifies the first accepted peak. `amplitude` is the rounded
+envelope value at the upward threshold crossing.
+
+The resting-mode rhythm lock starts with an expected RR of 900 ms, then uses
+the median of accepted RR intervals. A candidate earlier than 75% of the
+expected RR is classified as S2 and does not update the last accepted peak:
+
+```text
+Candidate rejected | interval=XXXms | amplitude=YYY | reason=S2
+```
+
+Valid RR intervals are 600–1500 ms (approximately 40–100 BPM). `BPM=0` is
+emitted until 8 consecutive valid intervals are available. An interval above
+1500 ms resets the interval history so stale BPM is not reported as current.
+
+A Serial Monitor configured for 921600 baud can display normal mode directly
+without binary characters.
+
+The browser consumes complete lines and accepts only the exact format above.
+Startup diagnostics such as `[SYSTEM ERROR] ...` are text but are not interpreted
+as heart-rate measurements.
 
 ## Calibration control and stream
 
-The host sends this 8-byte command to request a real calibration session:
+Calibration remains a separate, explicitly requested binary mode. The host
+sends this 8-byte command:
 
 `A5 5A | 01 | duration_ms:u32 LE | xor:u8`
 
 The duration must be 10–60 seconds. The checksum covers all preceding command
-bytes. Firmware then temporarily replaces the measurement stream with 261-byte
-calibration frames:
+bytes. Firmware temporarily replaces BPM text output with 261-byte calibration
+frames:
 
 `AA 56 | sequence:u8 | count:u8=32 | primary_cic:int32[32] LE | reference_cic:int32[32] LE | xor:u8`
 
-Each pair is the exact 8 kHz CIC output that normally enters ANC, before ANC is
-applied. Firmware automatically returns to the 69-byte measurement stream when
-the requested duration expires. The calibration host must discard malformed or
-old measurement frames while it seeks valid `AA 56` 261-byte frames.
+Each pair is the exact 8 kHz CIC output that normally enters ANC, before ANC.
+When the requested duration expires, firmware resets the heart-rate detector
+and automatically returns to text-only BPM mode.
+
+Binary characters are expected if a generic Serial Monitor is left open during
+calibration. Close the monitor and let the calibration tool own the serial port.
 
 ## Real calibration procedure
 
@@ -42,6 +65,5 @@ python tools/calibrate_anc.py --port COM5 --duration 30 --out D:\pcg-captures\ca
 
 The tool rejects silent/clipped channels, weak correlation, non-causal acoustic
 placement, excessive frame loss, divergence, or non-positive validation
-attenuation. On success it writes the real session/report to `--out` and updates
-only `ANC_NUM_TAPS` and `ANC_MU_INIT` in `include/config.h`. Rebuild and flash
-the firmware afterward.
+attenuation. On success it writes the session/report to `--out` and updates
+only `ANC_NUM_TAPS` and `ANC_MU_INIT` in `include/config.h`.

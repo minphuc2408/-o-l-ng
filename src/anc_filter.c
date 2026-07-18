@@ -82,7 +82,7 @@ int32_t anc_filter_process(anc_filter_t *ctx, int32_t primary_sample, int32_t re
     }
 
     // 7. Chuyển đổi và bão hòa tín hiệu ra sạch e(n) về dải int32_t.
-    // Không ghi log vào UART vì nó là luồng dữ liệu nhị phân độc quyền.
+    // Không ghi log theo từng mẫu; normal UART chỉ phát sự kiện BPM theo peak.
     float e_scaled = e * 2147483648.0f;
     int32_t out_e;
     if (e_scaled >= 2147483647.0f) {

@@ -2,14 +2,9 @@
 #include "config.h"
 #include <Arduino.h>
 
-#define SYNC_BYTE_0 0xAA
-#define SYNC_BYTE_1 0x55
-
-static uint8_t tx_seq_num = 0;
 static uint8_t calibration_seq_num = 0;
 
-#define DATA_SYNC_0 0xAA
-#define DATA_SYNC_1 0x55
+#define CALIBRATION_SYNC_0 0xAA
 #define CALIBRATION_SYNC_1 0x56
 #define CONTROL_SYNC_0 0xA5
 #define CONTROL_SYNC_1 0x5A
@@ -19,49 +14,6 @@ void serial_tx_init(void) {
     // BẮT BUỘC: Gọi setTxBufferSize trước khi begin để ESP32 Arduino thiết lập bộ đệm ring buffer TX mới
     Serial.setTxBufferSize(1024);
     Serial.begin(UART_BAUD_RATE);
-}
-
-void serial_tx_send_frame(const int16_t *samples, uint8_t count) {
-    if (samples == NULL || count == 0) {
-        return;
-    }
-
-    // Kích thước khung truyền: 2 (SYNC) + 1 (SEQ) + 1 (COUNT) + (count * 2) (SAMPLES) + 1 (CHECKSUM)
-    uint32_t payload_size = count * 2;
-    uint32_t frame_size = 2 + 1 + 1 + payload_size + 1;
-    
-    // Khởi tạo bộ đệm tĩnh cho khung truyền
-    uint8_t frame_buf[256];
-    if (frame_size > sizeof(frame_buf)) {
-        return; // Bảo vệ chống tràn
-    }
-
-    // 1. Đóng gói Header
-    frame_buf[0] = DATA_SYNC_0;
-    frame_buf[1] = DATA_SYNC_1;
-    frame_buf[2] = tx_seq_num;
-    frame_buf[3] = count;
-
-    // 2. Đóng gói Samples (định dạng số nguyên 16-bit, Little-Endian)
-    for (uint8_t i = 0; i < count; i++) {
-        int16_t sample = samples[i];
-        frame_buf[4 + i * 2]     = (uint8_t)(sample & 0xFF);        // LSB
-        frame_buf[4 + i * 2 + 1] = (uint8_t)((sample >> 8) & 0xFF); // MSB
-    }
-
-    // 3. Tính XOR Checksum trên toàn bộ khung truyền (trừ byte cuối chứa chính checksum)
-    uint8_t checksum = 0;
-    for (uint32_t i = 0; i < frame_size - 1; i++) {
-        checksum ^= frame_buf[i];
-    }
-    frame_buf[frame_size - 1] = checksum;
-
-    // 4. Gửi qua cổng UART
-    // Dữ liệu sẽ được ghi trực tiếp vào Ring Buffer TX nội bộ của ESP32 và truyền đi bất đồng bộ
-    Serial.write(frame_buf, frame_size);
-
-    // 5. Tăng mã thứ tự khung truyền
-    tx_seq_num++;
 }
 
 void serial_tx_send_calibration_frame(const int32_t *primary, const int32_t *reference, uint8_t count) {
@@ -75,7 +27,7 @@ void serial_tx_send_calibration_frame(const int32_t *primary, const int32_t *ref
         return;
     }
 
-    frame_buf[0] = DATA_SYNC_0;
+    frame_buf[0] = CALIBRATION_SYNC_0;
     frame_buf[1] = CALIBRATION_SYNC_1;
     frame_buf[2] = calibration_seq_num;
     frame_buf[3] = count;

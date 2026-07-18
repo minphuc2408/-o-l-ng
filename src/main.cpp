@@ -3,6 +3,7 @@
 #include "i2s_driver.h"
 #include "cic_filter.h"
 #include "anc_filter.h"
+#include "heart_rate.h"
 #include "serial_tx.h"
 
 // Bộ đệm chứa các mẫu thô (48kHz) đọc từ I2S
@@ -15,10 +16,6 @@ static cic_filter_t *cic_reference = NULL;
 
 // Instance bộ lọc thích nghi ANC NLMS
 static anc_filter_t *anc_ctx = NULL;
-
-// Hàng đợi FIFO tích lũy mẫu 16-bit trước khi truyền UART (khung 32 mẫu)
-static int16_t tx_fifo[SAMPLE_BUFFER_SIZE * 2];
-static size_t tx_fifo_count = 0;
 
 // FIFO riêng cho calibration: giữ nguyên int32_t CIC của cả hai kênh.
 static int32_t calibration_primary_fifo[SAMPLE_BUFFER_SIZE * 2];
@@ -63,6 +60,9 @@ void setup() {
             delay(1000);
         }
     }
+
+    // 5. Khởi tạo trạng thái phát hiện BPM (bộ nhớ hoàn toàn tĩnh).
+    heart_rate_reset();
 }
 
 void loop() {
@@ -73,6 +73,8 @@ void loop() {
             calibration_active = true;
             calibration_fifo_count = 0;
             calibration_end_ms = millis() + requested_duration_ms;
+            // Không cho interval kéo dài xuyên qua khoảng tạm dừng measurement.
+            heart_rate_reset();
         }
     }
 
@@ -120,7 +122,8 @@ void loop() {
             return;
         }
 
-        // 2. Chạy bộ lọc khử nhiễu thích nghi ANC NLMS và đưa vào hàng đợi FIFO truyền
+        // 2. Chạy ANC NLMS và đưa trực tiếp từng mẫu e(n) vào detector BPM.
+        // Normal mode không truyền PCM; UART chỉ có dòng text khi phát hiện peak.
         for (size_t i = 0; i < cic_samples; i++) {
             // Lọc sạch nhiễu: e(n) = d(n) - wᵀ * x(n)
             int32_t clean_val = anc_filter_process(anc_ctx, cic_primary_out[i], cic_reference_out[i]);
@@ -135,23 +138,9 @@ void loop() {
             } else if (scaled_val < INT16_MIN) {
                 scaled_val = INT16_MIN;
             }
-            
-            // Nạp vào FIFO truyền
-            if (tx_fifo_count < sizeof(tx_fifo) / sizeof(tx_fifo[0])) {
-                tx_fifo[tx_fifo_count++] = (int16_t)scaled_val;
-            }
-        }
-        
-        // 3. Nếu số lượng mẫu tích lũy đủ 1 khung (>= 32 mẫu), tiến hành đóng gói và truyền đi
-        while (tx_fifo_count >= 32) {
-            // Gửi khung truyền 32 mẫu qua UART
-            serial_tx_send_frame(tx_fifo, 32);
-            
-            // Dịch chuyển các mẫu chưa truyền trong FIFO lên phía trước
-            tx_fifo_count -= 32;
-            if (tx_fifo_count > 0) {
-                memmove(tx_fifo, &tx_fifo[32], tx_fifo_count * sizeof(int16_t));
-            }
+
+            // Xử lý tiếp tục từ e(n) ở đúng tốc độ đầu ra 8 kHz.
+            processSample((int16_t)scaled_val);
         }
     } else {
         // Tránh chiếm dụng CPU vô ích nếu không có mẫu mới từ I2S

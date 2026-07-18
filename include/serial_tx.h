@@ -15,13 +15,6 @@ extern "C" {
 void serial_tx_init(void);
 
 /**
- * @brief Đóng gói và gửi một khung dữ liệu âm thanh qua Serial.
- * @param samples Con trỏ tới buffer chứa các mẫu âm thanh cần gửi.
- * @param count Số lượng mẫu cần gửi (thường bằng 32).
- */
-void serial_tx_send_frame(const int16_t *samples, uint8_t count);
-
-/**
  * @brief Gửi 32 cặp mẫu CIC Primary/Reference trong phiên calibration thực.
  * Frame: AA 56 SEQ COUNT [Primary:int32 LE, Reference:int32 LE]... XOR.
  */

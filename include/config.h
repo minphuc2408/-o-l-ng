@@ -26,6 +26,18 @@
 // --- Giao tiếp Serial/UART ---
 #define UART_BAUD_RATE          921600U ///< Tốc độ truyền nhận Serial (baud rate) qua cổng USB
 
+// --- Phát hiện nhịp tim từ tín hiệu e(n) sau ANC ---
+#define HEART_RATE_ENV_ALPHA                  0.08f
+#define HEART_RATE_THRESHOLD_MULTIPLIER       1.5f
+#define HEART_RATE_THRESHOLD_WINDOW_SAMPLES  SAMPLE_RATE_OUT
+#define HEART_RATE_REFRACTORY_MS              300U
+#define HEART_RATE_REFRACTORY_SAMPLES         ((SAMPLE_RATE_OUT * HEART_RATE_REFRACTORY_MS) / 1000U)
+#define HEART_RATE_INTERVAL_MIN_MS            600U
+#define HEART_RATE_INTERVAL_MAX_MS            1500U
+#define HEART_RATE_BOOTSTRAP_INTERVAL_MS      900U
+#define HEART_RATE_S2_REJECT_PERCENT          75U
+#define HEART_RATE_INTERVAL_COUNT             8U
+
 // --- Calibration qua USB ---
 // Calibration stream dùng các mẫu CIC int32_t từ cả Primary và Reference.
 #define CALIBRATION_MIN_DURATION_MS  10000UL
